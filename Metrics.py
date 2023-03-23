@@ -41,7 +41,7 @@ def avg_rademacher(model, X, target):
         model.estimators_ = [model]
 
     for e in model.estimators_:
-        rad = np.sqrt( 2 * e.tree_.node_count * np.log(e.tree_.node_count + model.n_features_) / n_samples )
+        rad = np.sqrt( 2 * e.tree_.node_count * np.log(e.tree_.node_count + model.n_features_in_) / n_samples )
         #rad = np.sqrt( D * ( 4 * e.tree_.node_count + 2 ) / np.sqrt(n_samples + 1 ) )
         r.append( rad )
     return np.mean(r)

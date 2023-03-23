@@ -21,7 +21,8 @@ def download(url, filename, tmpdir = None):
         str: Returns the full path under which the file is stored. 
     """
     if tmpdir is None:
-        tmpdir = os.path.join(tempfile.gettempdir(), "data")
+        #tmpdir = os.path.join(tempfile.gettempdir(), "data")
+        tmpdir = '/home/palguna/Documents'
 
     if not os.path.exists(tmpdir):
         os.mkdir(tmpdir)

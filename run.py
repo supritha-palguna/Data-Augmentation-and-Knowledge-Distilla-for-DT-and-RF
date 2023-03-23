@@ -30,6 +30,10 @@ from NCRandomForestClassifier import NCRandomForestClassifier
 
 from Metrics import accuracy, avg_accuracy, avg_rademacher, c_bound, n_nodes, n_leaves, effective_height, soft_hinge, mse, bias, diversity
 from Models import BaggingClassifierWithSampleSize, DataAugmentationDecisionTreeClassifierWithSampleSize, DataAugmentationRandomForestClassifierWithSampleSize, DecisionTreeClassifierWithSampleSize, HomogeneousForest, RandomForestClassifierWithSampleSize
+from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import BorderlineSMOTE
+from imblearn.over_sampling import ADASYN
+from ctgan import CTGAN
 
 def beautify_scores(scores):
     """Remove test_ in all scores for a nicer output and compute the mean of each score.
@@ -74,6 +78,27 @@ def merge_dictionaries(dicts):
                 merged[key].append(val)
     return merged
 
+def apply_smote(X, y):
+    
+    #sm = SMOTE(random_state=42)
+    #sm = BorderlineSMOTE(random_state=42)
+    sm = ADASYN(random_state=42)
+    X_res, y_res = sm.fit_resample(X, y)
+    
+    return X_res, y_res
+
+def apply_ctgan(df):
+    discrete_columns = [
+    'label'
+    ]
+
+    ctgan = CTGAN(epochs=100, verbose=True)
+    model = ctgan.fit(df, discrete_columns)
+    model.device('GPU')
+   
+    data = ctgan.sample(30000)
+    return data
+
 def run_eval(cfg):
     """Fits and evalutes the model given the current configuration. The cfg tuple is expected to have the following form
         (model, X, Y, scoring, idx, additional_infos, run_id)
@@ -99,6 +124,18 @@ def run_eval(cfg):
     train, test = idx[rid]
     XTrain, YTrain = X[train,:], Y[train]
     XTest, YTest = X[test,:], Y[test]
+
+    #XTrain, YTrain = apply_smote(XTrain, YTrain)
+
+    YTrain_df = pd.DataFrame(YTrain, columns=['label'])
+    #XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10'])
+    XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10','col11','col12', 'col13', 'col14'])
+    train_data = pd.concat([XTrain_df, YTrain_df], axis=1)
+    
+    train_data = apply_ctgan(train_data)
+    
+    XTrain = train_data.values[:,:-1].astype(np.float64)
+    YTrain = train_data.values[:,-1]
 
     from sklearn.preprocessing import MinMaxScaler
     scaler = MinMaxScaler()
@@ -146,7 +183,7 @@ def prepare_xval(cfg, xval):
 def main(args):
     for dataset in args.dataset:
         X, Y = get_dataset(dataset, args.tmpdir)
-        
+
         if X is None or Y is None: 
             exit(1)
 
@@ -200,42 +237,42 @@ def main(args):
             #ls = np.round(np.arange(-20,-8.0,0.25),4)
             #print(ls)
             #for l in np.round(np.arange(1.0,1.005,0.0001),4):
-            for l in ls:
-                configs.extend(
-                    prepare_xval(
-                        {
-                            **common_config,
-                            "model":NCRandomForestClassifier(
-                                base_forest = RandomForestClassifier(n_estimators = args.n_estimators,  max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state, bootstrap=True),#, max_features=1
-                                # base_forest=ExtraTreesClassifier(
-                                #     n_estimators=args.n_estimators,
-                                #     n_jobs = n_jobs_per_forest,
-                                #     max_leaf_nodes=mn
-                                # ),
-                                # base_forest = BaggingClassifier(
-                                #     base_estimator=DecisionTreeClassifier(max_leaf_nodes=mn),
-                                #     n_estimators = args.n_estimators,
-                                #     n_jobs = n_jobs_per_forest, 
-                                #     bootstrap = False,
-                                #     max_samples = 0.95
-                                # ),
-                                # base_forest = HomogeneousForest(
-                                #     base_dt=DecisionTreeClassifier(max_leaf_nodes=mn, random_state=random_state),
-                                #     n_estimators = args.n_estimators, n_jobs = n_jobs_per_forest
-                                # ),
-                                l_reg = l, n_jobs = 1, verbose = False
-                            ), 
-                            "additional_infos": {
-                                "dataset":dataset,
-                                "method":"NCF-{}".format(l),
-                                "max_nodes":mn,
-                                "T":args.n_estimators,
+            # for l in ls:
+            #     configs.extend(
+            #         prepare_xval(
+            #             {
+            #                 **common_config,
+            #                 "model":NCRandomForestClassifier(
+            #                     base_forest = RandomForestClassifier(n_estimators = args.n_estimators,  max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state, bootstrap=True),#, max_features=1
+            #                     # base_forest=ExtraTreesClassifier(
+            #                     #     n_estimators=args.n_estimators,
+            #                     #     n_jobs = n_jobs_per_forest,
+            #                     #     max_leaf_nodes=mn
+            #                     # ),
+            #                     # base_forest = BaggingClassifier(
+            #                     #     base_estimator=DecisionTreeClassifier(max_leaf_nodes=mn),
+            #                     #     n_estimators = args.n_estimators,
+            #                     #     n_jobs = n_jobs_per_forest, 
+            #                     #     bootstrap = False,
+            #                     #     max_samples = 0.95
+            #                     # ),
+            #                     # base_forest = HomogeneousForest(
+            #                     #     base_dt=DecisionTreeClassifier(max_leaf_nodes=mn, random_state=random_state),
+            #                     #     n_estimators = args.n_estimators, n_jobs = n_jobs_per_forest
+            #                     # ),
+            #                     l_reg = l, n_jobs = 1, verbose = False
+            #                 ), 
+            #                 "additional_infos": {
+            #                     "dataset":dataset,
+            #                     "method":"NCF-{}".format(l),
+            #                     "max_nodes":mn,
+            #                     "T":args.n_estimators,
 
-                            }
-                        },
-                        args.xval
-                    )
-                )
+            #                 }
+            #             },
+            #             args.xval
+            #         )
+            #     )
         
         for mn in args.max_nodes:
             configs.extend(
@@ -256,55 +293,55 @@ def main(args):
                 )
             )
 
-            configs.extend(
-                prepare_xval(
-                    {
-                        **common_config,
-                        "model":DataAugmentationRandomForestClassifierWithSampleSize(
-                            n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
-                        ),
-                        "additional_infos": {
-                            "dataset":dataset,
-                            "method":"DA-RF",
-                            "max_nodes":mn,
-                            "T":args.n_estimators
-                        }
-                    },
-                    args.xval
-                )
-            )
+            # configs.extend(
+            #     prepare_xval(
+            #         {
+            #             **common_config,
+            #             "model":DataAugmentationRandomForestClassifierWithSampleSize(
+            #                 n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
+            #             ),
+            #             "additional_infos": {
+            #                 "dataset":dataset,
+            #                 "method":"DA-RF",
+            #                 "max_nodes":mn,
+            #                 "T":args.n_estimators
+            #             }
+            #         },
+            #         args.xval
+            #     )
+            # )
 
-            configs.extend(
-                prepare_xval(
-                    {
-                        **common_config,
-                        "model":DecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state),
-                        "additional_infos": {
-                            "dataset":dataset,
-                            "method":"DT",
-                            "max_nodes":mn,
-                            "T":1
-                        }
-                    }, 
-                    args.xval
-                )
-            )
+            # configs.extend(
+            #     prepare_xval(
+            #         {
+            #             **common_config,
+            #             "model":DecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state,max_depth = args.max_depth),
+            #             "additional_infos": {
+            #                 "dataset":dataset,
+            #                 "method":"DT",
+            #                 "max_nodes":mn,
+            #                 "T":1
+            #             }
+            #         }, 
+            #         args.xval
+            #     )
+            # )
 
-            configs.extend(
-                prepare_xval(
-                    {
-                        **common_config,
-                        "model":DataAugmentationDecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state),
-                        "additional_infos": {
-                            "dataset":dataset,
-                            "method":"DA-DT",
-                            "max_nodes":mn,
-                            "T":1
-                        }
-                    },
-                    args.xval
-                )
-            )
+            # configs.extend(
+            #     prepare_xval(
+            #         {
+            #             **common_config,
+            #             "model":DataAugmentationDecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state),
+            #             "additional_infos": {
+            #                 "dataset":dataset,
+            #                 "method":"DA-DT",
+            #                 "max_nodes":mn,
+            #                 "T":1
+            #             }
+            #         },
+            #         args.xval
+            #     )
+            # )
         
         print("Configured {} experiments. Starting experiments now using {} jobs.".format(len(configs), n_jobs_in_pool))
         pool = Pool(n_jobs_in_pool)
@@ -341,6 +378,7 @@ if __name__ == '__main__':
     parser.add_argument("-M", "--n_estimators", help="Number of estimators in the forest.", type=int, default=32)
     parser.add_argument("-x", "--xval", help="Number of cross-validation runs if the dataset does not contain a train/test split.",type=int, default=10)
     parser.add_argument("-t", "--tmpdir", help="Temporary folder in which datasets should be stored.",type=str, default=None)
+    parser.add_argument("--max_depth", help="Maximum depth for a decision tree.", type=int, default=None)
     args = parser.parse_args()
 
     if args.max_nodes is None or len(args.max_nodes) == 0:
