@@ -80,8 +80,20 @@ def merge_dictionaries(dicts):
 
 def apply_smote(X, y):
     
-    #sm = SMOTE(random_state=42)
-    #sm = BorderlineSMOTE(random_state=42)
+    sm = SMOTE(random_state=42)
+    X_res, y_res = sm.fit_resample(X, y)
+    
+    return X_res, y_res
+
+def apply_bsmote(X, y):
+    
+    sm = BorderlineSMOTE(random_state=42)
+    X_res, y_res = sm.fit_resample(X, y)
+    
+    return X_res, y_res
+
+def apply_adasyn(X, y):
+    
     sm = ADASYN(random_state=42)
     X_res, y_res = sm.fit_resample(X, y)
     
@@ -92,9 +104,8 @@ def apply_ctgan(df):
     'label'
     ]
 
-    ctgan = CTGAN(epochs=100, verbose=True)
+    ctgan = CTGAN(epochs=100, cuda=True, verbose=True)
     model = ctgan.fit(df, discrete_columns)
-    model.device('GPU')
    
     data = ctgan.sample(30000)
     return data
@@ -121,27 +132,40 @@ def run_eval(cfg):
     """
     model, X, Y, scoring, idx, additional_infos, rid = cfg["model"], cfg["X"], cfg["Y"], cfg["scoring"], cfg["idx"], cfg["additional_infos"], cfg["run_id"]
 
+
     train, test = idx[rid]
     XTrain, YTrain = X[train,:], Y[train]
     XTest, YTest = X[test,:], Y[test]
 
-    #XTrain, YTrain = apply_smote(XTrain, YTrain)
+    if additional_infos["augment_method"] == "vanilla":
+        XTrain, YTrain = X[train,:], Y[train]
 
-    YTrain_df = pd.DataFrame(YTrain, columns=['label'])
-    #XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10'])
-    XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10','col11','col12', 'col13', 'col14'])
-    train_data = pd.concat([XTrain_df, YTrain_df], axis=1)
-    
-    train_data = apply_ctgan(train_data)
-    
-    XTrain = train_data.values[:,:-1].astype(np.float64)
-    YTrain = train_data.values[:,-1]
+    if additional_infos["augment_method"] == "smote":
+        XTrain, YTrain = apply_smote(XTrain, YTrain)
+
+    if additional_infos["augment_method"] == "borderline-smote":
+        XTrain, YTrain = apply_bsmote(XTrain, YTrain)
+
+    if additional_infos["augment_method"] == "adasyn":
+        XTrain, YTrain = apply_adasyn(XTrain, YTrain)
+
+    if additional_infos["augment_method"] == "ctgan":
+        YTrain_df = pd.DataFrame(YTrain, columns=['label'])
+        if additional_infos["dataset"] == "magic":
+            XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10'])
+        if additional_infos["dataset"] == "eeg":
+            XTrain_df = pd.DataFrame(XTrain, columns=['col1', 'col2', 'col3','col4', 'col5', 'col6','col7', 'col8', 'col9','col10','col11','col12', 'col13', 'col14'])
+
+        train_data = pd.concat([XTrain_df, YTrain_df], axis=1)
+        train_data = apply_ctgan(train_data)
+        XTrain = train_data.values[:,:-1].astype(np.float64)
+        YTrain = train_data.values[:,-1]
 
     from sklearn.preprocessing import MinMaxScaler
     scaler = MinMaxScaler()
     XTrain = scaler.fit_transform(XTrain)
     XTest = scaler.transform(XTest)
-    
+
     model.fit(XTrain, YTrain)
 
     scores = {}
@@ -220,7 +244,7 @@ def main(args):
             "X": X,
             "Y": Y, 
             "scoring":scoring, 
-            "idx":idx, 
+            "idx":idx
         }
 
         n_jobs_per_forest = None #min(5, args.n_jobs - n_jobs_per_forest)
@@ -275,74 +299,77 @@ def main(args):
             #     )
         
         for mn in args.max_nodes:
-            configs.extend(
-                prepare_xval(
-                    {
-                        **common_config,
-                        "model":RandomForestClassifierWithSampleSize(
-                            n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
-                        ), 
-                        "additional_infos": {
-                            "dataset":dataset,
-                            "method":"RF",
-                            "max_nodes":mn,
-                            "T":args.n_estimators
-                        }
-                    },
-                    args.xval 
+            for augment_method in args.augment_method:
+                configs.extend(
+                    prepare_xval(
+                        {
+                            **common_config,
+                            "model":RandomForestClassifierWithSampleSize(
+                                n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
+                            ), 
+                            "additional_infos": {
+                                "dataset":dataset,
+                                "method":"RF",
+                                "max_nodes":mn,
+                                "T":args.n_estimators,
+                                "augment_method":augment_method
+                            }
+                        },
+                        args.xval 
+                    )
                 )
-            )
 
-            # configs.extend(
-            #     prepare_xval(
-            #         {
-            #             **common_config,
-            #             "model":DataAugmentationRandomForestClassifierWithSampleSize(
-            #                 n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
-            #             ),
-            #             "additional_infos": {
-            #                 "dataset":dataset,
-            #                 "method":"DA-RF",
-            #                 "max_nodes":mn,
-            #                 "T":args.n_estimators
-            #             }
-            #         },
-            #         args.xval
-            #     )
-            # )
+                # configs.extend(
+                #     prepare_xval(
+                #         {
+                #             **common_config,
+                #             "model":DataAugmentationRandomForestClassifierWithSampleSize(
+                #                 n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes=mn, n_jobs = n_jobs_per_forest, random_state=random_state
+                #             ),
+                #             "additional_infos": {
+                #                 "dataset":dataset,
+                #                 "method":"DA-RF",
+                #                 "max_nodes":mn,
+                #                 "T":args.n_estimators
+                #             }
+                #         },
+                #         args.xval
+                #     )
+                # )
 
-            # configs.extend(
-            #     prepare_xval(
-            #         {
-            #             **common_config,
-            #             "model":DecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state,max_depth = args.max_depth),
-            #             "additional_infos": {
-            #                 "dataset":dataset,
-            #                 "method":"DT",
-            #                 "max_nodes":mn,
-            #                 "T":1
-            #             }
-            #         }, 
-            #         args.xval
-            #     )
-            # )
+                configs.extend(
+                    prepare_xval(
+                        {
+                            **common_config,
+                            "model":DecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state,max_depth = args.max_depth),
+                            "additional_infos": {
+                                "dataset":dataset,
+                                "method":"DT",
+                                "max_nodes":mn,
+                                "T":1,
+                                "augment_method":augment_method
+                            }
+                        }, 
+                        args.xval
+                    )
+                )
 
-            # configs.extend(
-            #     prepare_xval(
-            #         {
-            #             **common_config,
-            #             "model":DataAugmentationDecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state),
-            #             "additional_infos": {
-            #                 "dataset":dataset,
-            #                 "method":"DA-DT",
-            #                 "max_nodes":mn,
-            #                 "T":1
-            #             }
-            #         },
-            #         args.xval
-            #     )
-            # )
-        
+                # configs.extend(
+                #     prepare_xval(
+                #         {
+                #             **common_config,
+                #             "model":DataAugmentationDecisionTreeClassifierWithSampleSize(max_leaf_nodes=mn, random_state=random_state),
+                #             "additional_infos": {
+                #                 "dataset":dataset,
+                #                 "method":"DA-DT",
+                #                 "max_nodes":mn,
+                #                 "T":1
+                #             }
+                #         },
+                #         args.xval
+                #     )
+                # )
+            
         print("Configured {} experiments. Starting experiments now using {} jobs.".format(len(configs), n_jobs_in_pool))
         pool = Pool(n_jobs_in_pool)
         delayed_metrics = []
@@ -367,7 +394,7 @@ def main(args):
 
         df = df.sort_values(by=["dataset","max_nodes", "method", "T"])
         with pd.option_context('display.max_rows', None): 
-            print(df[["dataset", "method", "max_nodes", "effective_height", "n_leaves", "T", "train_accuracy", "accuracy", "n_nodes", "avg_rademacher", "bias", "diversity"]])
+            print(df[["dataset", "method", "augment_method", "max_nodes", "effective_height", "n_leaves", "T", "train_accuracy", "accuracy", "n_nodes", "avg_rademacher", "bias", "diversity"]])
 
 if __name__ == '__main__':
     #sys.argv = ['./run.py', '-x', '5', '-M', '256', '--n_jobs', '1', '--max_nodes', '4096', '-d', 'magic']
@@ -379,6 +406,7 @@ if __name__ == '__main__':
     parser.add_argument("-x", "--xval", help="Number of cross-validation runs if the dataset does not contain a train/test split.",type=int, default=10)
     parser.add_argument("-t", "--tmpdir", help="Temporary folder in which datasets should be stored.",type=str, default=None)
     parser.add_argument("--max_depth", help="Maximum depth for a decision tree.", type=int, default=None)
+    parser.add_argument("-a", "--augment_method", help="Method for Augmnetation.", type=str, nargs='+')
     args = parser.parse_args()
 
     if args.max_nodes is None or len(args.max_nodes) == 0:
